@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WebTerm Access</title>
+
+<style>
+body {
+    margin: 0;
+    background: black;
+    color: lime;
+    font-family: monospace;
+}
+
+header {
+    background: #111;
+    padding: 8px 12px;
+    border-bottom: 1px solid #333;
+}
+
+header strong {
+    font-size: 16px;
+}
+
+header span {
+    opacity: 0.6;
+    margin-left: 8px;
+}
+
+header button {
+    float: right;
+    background: #222;
+    color: lime;
+    border: 1px solid #333;
+    padding: 4px 10px;
+    cursor: pointer;
+}
+
+#terminal {
+    height: calc(100vh - 90px);
+    overflow-y: auto;
+    padding: 10px;
+    white-space: pre-wrap;
+}
+
+#input {
+    width: 100%;
+    box-sizing: border-box;
+    background: black;
+    color: lime;
+    border: none;
+    border-top: 1px solid #333;
+    padding: 12px;
+    outline: none;
+    font-family: monospace;
+    font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <strong>🖥️ WebTerm Access</strong>
+    <span>system terminal interface</span>
+    <button onclick="startSession()">Start Session</button>
+</header>
+
+<div id="terminal"></div>
+<input id="input" placeholder="WebTerm input…" autofocus>
+
+<script>
+/* =====================
+   Authentication
+   ===================== */
+
+let authToken = "";
+
+(function requestPassword() {
+    if (confirm("Does WebTerm Access require a password?")) {
+        authToken = prompt("Enter WebTerm Access password:") || "";
+    }
+})();
+
+function authFetch(url, options = {}) {
+    options.headers = options.headers || {};
+    if (authToken) {
+        options.headers["X-WebTerm-Auth"] = authToken;
+    }
+    return fetch(url, options);
+}
+
+/* =====================
+   WebTerm Logic
+   ===================== */
+
+const terminal = document.getElementById("terminal");
+const input = document.getElementById("input");
+
+let polling = false;
+
+async function startSession() {
+    const res = await authFetch("/webterm/start", {
+        method: "POST",
+        body: "{}"
+    });
+
+    if (!res.ok) {
+        alert("Authentication failed");
+        return;
+    }
+
+    terminal.textContent += "\n[WebTerm session started]\n";
+    if (!polling) {
+        polling = true;
+        pollOutput();
+    }
+}
+
+async function pollOutput() {
+    while (polling) {
+        try {
+            const res = await authFetch("/webterm/output");
+            if (!res.ok) {
+                terminal.textContent += "\n[Authentication error]\n";
+                polling = false;
+                return;
+            }
+
+            const data = await res.json();
+            if (data.output) {
+                terminal.textContent += data.output;
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        } catch {
+            terminal.textContent += "\n[Connection lost]\n";
+            polling = false;
+            return;
+        }
+        await new Promise(r => setTimeout(r, 100));
+    }
+}
+
+input.addEventListener("keydown", async e => {
+    if (e.key === "Enter") {
+        const text = input.value;
+        input.value = "";
+
+        terminal.textContent += "\n$ " + text + "\n";
+
+        const res = await authFetch("/webterm/input", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input: text + "\n" })
+        });
+
+        if (!res.ok) {
+            terminal.textContent += "[Authentication failed]\n";
+        }
+    }
+});
+</script>
+
+</body>
+</html>
